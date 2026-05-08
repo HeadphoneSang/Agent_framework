@@ -12,7 +12,7 @@ __切记，修改意见言简意赅，直击痛点，避免长篇大论__
 ## 可用工具
 {tools}
 ## 工作流程
-请严格按照以下格式进行回应:  
+请严格按照以下格式进行回应:   
 Thought: 分析当前问题，思考需要什么信息或采取什么行动（每次回复只能有一个Thought）。  
 Action: 选择一个行动，行动的格式必须是以下之一(__注:Finish不要和工具一起使用，每次回复可以有多个Action！！！__):
 - `tool_name[arg0_name="arg0_value", arg1_name="arg1_value", ... , argN_name="argN_value"]` - 调用指定工具

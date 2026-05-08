@@ -4,7 +4,7 @@
 ## 可用工具
 {tools}
 ## 工作流程
-请严格按照以下格式进行回应:  
+请严格按照以下格式进行回应:   
 Thought: 分析当前问题，思考需要什么信息或采取什么行动。  
 Action: 选择一个行动，格式必须是以下之一,__Finish不要和工具一起使用！！！__:
 - `tool_name[arg0_name="arg0_value", arg1_name="arg1_value", ... , argN_name="argN_value"]` - 调用指定工具
