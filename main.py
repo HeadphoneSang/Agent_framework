@@ -7,7 +7,7 @@ from logger.loggerUtil import get_logger
 from tools.local_tools import CalculateTool, TimeTool
 from tools.web_tools import SearchTool
 
-llm = MyLLM()
+llm = MyLLM(provider='qwen')
 
 tool_register = ToolRegistry()
 

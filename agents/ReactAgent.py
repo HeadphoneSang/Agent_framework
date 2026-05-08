@@ -1,7 +1,6 @@
 import os
 import re
 from typing import Optional, List, Dict, Any
-from agents.base import BaseAgent
 from agents.base.ToolBaseAgent import ToolBaseAgent
 from config import BaseConfig
 from internals import HelloAgentsLLM, Message
@@ -37,17 +36,16 @@ class ReactAgent(ToolBaseAgent):
         self.logger.info(f"{self.name} 正在处理: {input_msg.content}")
         prompt_template = self.system_prompt
         tools_descriptions = self.tool_registry.get_all_tools_descriptions()
-        # self.add_history(input_msg)
+        # 初始化当前会话的短期记忆列表
+        short_term_memory: List[str] = [str(message) for message in self.history[-(self.max_history_len-self.max_epoch):]]
         # 开始执行React循环
         for epoch in range(self.max_epoch):
             self.logger.debug(f"{self.name} epoch: {epoch}")
-            # 生成最近的max_history_length长度的历史记录的提示词列表
-            current_history: List[str] = [str(message) for message in self.history[-self.max_history_len:]]
-            history_prompt = "\n- ".join(current_history)
+            history_prompt = "\n- ".join(short_term_memory)
             prompt = prompt_template.format(history=history_prompt, question=input_msg.content,
                                             tools=tools_descriptions)
             messages = [{
-                "role": "system",
+                "role": "user",
                 "content": prompt,
             }]
             response_content = self.llm.think(messages, **kwargs, stream=stream)
@@ -57,8 +55,9 @@ class ReactAgent(ToolBaseAgent):
                 thought_part = parts[0]
                 action_part = parts[1]
                 thought_content = thought_part.split("Thought:")[1].strip()
+                # 将模型执行的思路加入到短期记忆记录里面
                 if thought_content != "":
-                    self.add_history(Message(content=thought_content, role="assistant"))
+                    short_term_memory.append(str(Message(content=thought_content, role="assistant")))
                 # 解析action
                 tool_call_list: List[Dict[str, Any]] = self._parse_action_part(action_part)
                 # LLM没有调用工具，直接返回智能体的最终结果
@@ -69,26 +68,28 @@ class ReactAgent(ToolBaseAgent):
                 for tool_call in tool_call_list:
                     tool_result = self.tool_registry.execute_tool(tool_call)
                     tool_call_results.append(f"- 工具: {tool_call.get('tool_name')} 的执行结果为: {tool_result}")
-                # 将所有的工具调用的结果加入到历史记录里面
-                self.add_history(Message(content="\n".join(tool_call_results), role="tool"))
-                self.logger.debug(f"{self.name} 工具调用结果: {self.history[-1].content}")
+                # 将所有的工具调用的结果加入到短期记忆记录里面
+                short_term_memory.append(str(Message(content="\n".join(tool_call_results), role="tool")))
+                # self.add_history(Message(content="\n".join(tool_call_results), role="tool"))
+                self.logger.debug(f"{self.name} 工具调用结果: {short_term_memory[-1]}")
             except Exception as e:
                 self.logger.error(f"{self.name} 运行错误: {e}")
-                self.add_history(
-                    Message(content=f"{response_content} **！！回答格式错误！！**，__请严格检查回答要求，并重新回复。__", role="tool"))
+                # 将格式解析错误的信息加入到短期记忆，让LLM知道错误，并重新执行
+                short_term_memory.append(str(Message(content=f"{response_content} **！！回答格式错误！！**，__请严格检查回答要求，并重新回复。__", role="tool")))
         # 如果超过最大轮数，则返回最终结果
         current_history: List[str] = [str(message) for message in self.history[-self.max_history_len:]]
         history_prompt = "\n- ".join(current_history)
         messages = [
             {
-                "role": "system",
+                "role": "user",
                 "content": history_prompt
             },
             {
-                "role": "system",
+                "role": "user",
                 "content": f"你已经超出了最大的回答次数。请结合上文的历史信息，针对用户的原始问题: {input_msg.content}\n直接给出总结性的回答文本，结束这次对话"
             }
         ]
+        self.logger.warning(f"{self.name} 运行超过最大轮数，返回最终结果...")
         response_content = self.llm.think(messages, **kwargs, stream=stream)
         self.add_history(Message(content=response_content, role="assistant"))
         return self.history[-1]

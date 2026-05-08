@@ -18,7 +18,7 @@ class MyLLM(HelloAgentsLLM):
         # 处理无参数的自动匹配供应商
         api_key0 = None
         provider = provider.lower()
-        self.provider =  provider
+        self.provider = provider
         self.config = ProviderConfig()
         try:
             self.logger = get_logger()
