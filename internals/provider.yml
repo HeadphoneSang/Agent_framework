@@ -1,0 +1,11 @@
+provider_list:
+  # MODELSCOPE_Args
+  modelscope:
+    key_name: "MODELSCOPE_API_KEY"
+    base_url: "https://api-inference.modelscope.cn/v1"
+    model_name: "Qwen/Qwen2.5-VL-72B-Instruct"
+  # DEEPSEEK_Args
+  deepseek:
+    key_name: "DEEPSEEK_API_KEY"
+    base_url: "https://api.deepseek.com/v1"
+    model_name: "deepseek-v4-flash"
