@@ -12,4 +12,4 @@ provider_list:
   qwen:
     key_name: "ALI_API_KEY"
     base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    model_name: "qwen3-vl-235b-a22b-thinking"
+    model_name: "qvq-max-2025-03-25"

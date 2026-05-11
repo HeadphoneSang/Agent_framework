@@ -20,14 +20,15 @@ class Message(BaseModel):
             timestamp=kwargs.get("timestamp",datetime.now()),
             metadata=kwargs.get("metadata", {})
         )
+        self.time_str = self.timestamp.strftime("%Y-%m-%d %H:%M:%S")
 
     def to_openai_dict(self) -> Dict[str, Any]:
         return {
             "role": self.role,
-            "content": self.content,
+            "content": f"[{self.timestamp}]"+self.content,
         }
 
     def __str__(self):
-        return f"[{self.role}]: {self.content}"
+        return f"[{self.time_str}][{self.role}]: {self.content} - "
 
 

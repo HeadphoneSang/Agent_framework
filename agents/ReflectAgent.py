@@ -1,11 +1,11 @@
 import os
 import re
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from agents import ReactAgent
-from agents.base.ToolBaseAgent import ToolBaseAgent
+from agents.base import ToolBaseAgent, BaseMemoryAgent
 from config import BaseConfig
-from internals import HelloAgentsLLM, Message
+from internals import HelloAgentsLLM, Message, BaseMemory, MemoryInMemory
 from internals.tool import ToolRegistry
 from logger.loggerUtil import get_logger
 from utils.fileUtils import load_file_content, get_abs_path
@@ -16,7 +16,10 @@ def _extract_pure_content(message: Message):
     return match.group(2).strip() if match else message.content
 
 
-class ReflectAgent(ToolBaseAgent):
+class ReflectAgent(ToolBaseAgent, BaseMemoryAgent):
+    def _init_memory(self, config: Dict[str, Any]) -> BaseMemory:
+        return MemoryInMemory(config)
+
     def __init__(
             self,
             name: str,

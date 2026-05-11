@@ -16,10 +16,11 @@ tool_register.register(TimeTool())
 tool_register.register(SearchTool())
 
 agent = ReflectAgent(
-    name="写作机器人",
+    name="问答机器人",
     llm=llm,
     config=AgentConfig(),
     tool_registry=tool_register
 )
-final_answer: Message = agent.run(stream=True, input_msg=Message(role="user",content="帮我规划一下，今年暑假去张家界的计划"))
-get_logger().info(final_answer.content)
+answer_0: Message = agent.run_w_memory(input_msg=Message(role="user",content="这两天北京的天气怎么样？不用太严谨，直接回答给我就行"),config={"session_id":"12345"},stream=True,)
+get_logger().info(answer_0.content)
+answer_1: Message = agent.run_w_memory(input_msg=Message(role="user",content="那我需要拿什么衣物？"),config={"session_id":"12345"},stream=True,)
