@@ -10,13 +10,14 @@ class HelloAgentsLLM:
     A simple LLM that uses the OpenAI API to generate responses.
     """
 
-    def __init__(self, api_key: str, base_url: str, timeout: int = 60, model: str = "deepseek-chat", ):
+    def __init__(self, api_key: str, base_url: str, timeout: int = 60, model: str = "deepseek-chat", print_content:bool=False):
         self.api_key = api_key
         self.model = model
         self.base_url = base_url
         self.timeout = timeout
         self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
         self.logger = get_logger()
+        self.print_content = print_content
 
     def think(self, message: List[Dict[str, str]], temperature: float = 0.7, stream: bool = False) -> str:
         """
@@ -43,7 +44,8 @@ class HelloAgentsLLM:
                 stream=False,
             )
             content = response.choices[0].message.content
-            print(content)
+            if self.print_content:
+                print(content)
             return content
         except Exception as e:
             self.logger.error(f"模型调用失败: {e}")
@@ -69,25 +71,12 @@ class HelloAgentsLLM:
             )
             chunk_list = []
             for chunk_content in storage_chunk_stream(response, chunk_list):
-                print(chunk_content, end="", flush=True)
-            print("\n")
+                if self.print_content:
+                    print(chunk_content, end="", flush=True)
+            if self.print_content:
+                print("\n")
             return "".join(chunk_list)
         except Exception as e:
             self.logger.error(f"模型调用失败: {e}")
             return "模型调用失败"
 
-if __name__ == "__main__":
-    api_key = os.environ['DEEPSEEK_API_KEY']
-    base_url = os.environ['DEEPSEEK_BASE_URL']
-    agent_client = HelloAgentsLLM(api_key=api_key, base_url=base_url)
-    messages = [
-        {
-            "role": "system",
-            "content": "你是一个助手，请根据用户输入的指令进行回答。",
-        },
-        {
-            "role": "user",
-            "content": "请帮我介绍一下徐州",
-        }
-    ]
-    get_logger().info(f"agent 的完整回答如下: {agent_client.think(messages, temperature=0.7)}")

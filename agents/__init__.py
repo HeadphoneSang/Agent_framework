@@ -1,9 +1,9 @@
 from .ReactAgent import ReactAgent
-from .SImpleAgent import SimpleAgent
 from .ReflectAgent import ReflectAgent
+from .SimplePlannerAgent import SimplePlannerAgent
 
 __all__ = [
     "ReactAgent",
-    "SimpleAgent",
-    "ReflectAgent"
+    "ReflectAgent",
+    "SimplePlannerAgent"
 ]

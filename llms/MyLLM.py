@@ -13,6 +13,7 @@ class MyLLM(HelloAgentsLLM):
             api_key: Optional[str] = None,
             base_url: Optional[str] = None,
             provider: Optional[str] = "auto",
+            print_content: bool = False,
             **kwargs
     ):
         # 处理无参数的自动匹配供应商
@@ -46,7 +47,7 @@ class MyLLM(HelloAgentsLLM):
         model = model or model0
         api_key = api_key or api_key0
         base_url = base_url or base_url0
-        super().__init__(api_key=api_key, base_url=base_url, model=model, **kwargs)
+        super().__init__(api_key=api_key, base_url=base_url, model=model,print_content=print_content, **kwargs)
 
 
 if __name__ == "__main__":

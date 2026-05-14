@@ -4,6 +4,7 @@ from .ProviderConfig import ProviderConfig
 from .LogConfig import LogConfig
 from .SystemConfig import SystemConfig
 from .AgentConfig import AgentConfig
+from .RedisConfig import RedisConfig
 
 __all__ = [
     "BaseConfig",
@@ -12,4 +13,5 @@ __all__ = [
     "LogConfig",
     "SystemConfig",
     "AgentConfig",
+    "RedisConfig",
 ]

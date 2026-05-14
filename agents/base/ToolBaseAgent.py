@@ -10,6 +10,11 @@ from logger.loggerUtil import get_logger
 from utils.fileUtils import load_file_content, get_abs_path
 
 
+class SafeDict(dict):
+    def __missing__(self, key):
+        return "{" + key + "}"
+
+
 class ToolBaseAgent(BaseAgent, ABC):
 
     def __init__(
@@ -61,3 +66,30 @@ class ToolBaseAgent(BaseAgent, ABC):
         if not self.tool_registry:
             return []
         return self.tool_registry.get_all_tools_descriptions()
+
+    def _inject_tool_prompt(self, tool_key: str):
+        """
+        将工具提示词注入到系统提示词里面
+        :param tool_key: 工具提示词的key
+        :return: None
+        """
+        tools_descriptions = self.tool_registry.get_all_tools_descriptions()
+        kv_dict = SafeDict()
+        kv_dict[tool_key] = tools_descriptions
+        self.system_prompt = self.system_prompt.format_map(kv_dict)
+
+    def _run_with_tools(self, messages: list[dict[str, str]],
+                        tools_key: str = "tools", temperature: float = None,
+                        stream: bool = None):
+        """
+        自动在提示词内注入工具信息，同时将其他的kv也注入到提示词，然后调用LLM返回文本
+        :param messages: 发送的消息
+        :param tools_key: 工具提示词的key
+        :param temperature: 温度系数
+        :param stream: 是否流式返回
+        :return: 返回str
+        """
+        # 注入工具信息到系统提示词
+        self._inject_tool_prompt(tools_key)
+        response_text = self.llm.think(messages, temperature, stream)
+        return response_text
