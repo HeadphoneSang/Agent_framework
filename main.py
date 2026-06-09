@@ -32,7 +32,7 @@ agent = ReactTCAgent(
     tool_registry=tool_register
 )
 agent = AgentWithMemoryProxy(agent=agent, init_memory_func=init_memory)
-stream_res = agent.stream(input_params={"question": "如何改善男性勃起强度，查一下资料，给我详细的答案"},
+stream_res = agent.stream(input_params={"question": "美国的民主共和和朝鲜的社会主义有什么区别，查一下资料，给我详细的答案"},
                           stream=True)
 for msg in stream_res:
     print("============================")

@@ -160,14 +160,15 @@ class FunctionCallAgent(ToolBaseAgent):
         }
         return [analysis_instruction] + list(messages)
 
-    def _valid_structured_response(self, choice: ChatCompletionMessage) -> Tuple[str, Optional[str]]:
+    def _valid_structured_response(self, choice: ChatCompletionMessage, **validate_kwargs) -> Tuple[str, Optional[str]]:
         """
         验证并提取结构化输出函数的调用内容。
+        :param validate_kwargs: 透传给验证管道的额外参数（如 escalation_level）。
         :return: (structured_response_content, tc_id)
                  tc_id 为结构化输出函数的 tool_call_id，存在时必不为 None。
         """
         # 验证是否命中结构化输出函数
-        self.hit_valid_pipeline.validate(choice, function_name=self._structured_output_fn)
+        self.hit_valid_pipeline.validate(choice, function_name=self._structured_output_fn, **validate_kwargs)
         # 验证是否符合结构化输出函数的参数
         structured_tc: ChatCompletionMessageFunctionToolCall = next(
             tool for tool in choice.tool_calls if tool.function.name == self._structured_output_fn)
@@ -239,7 +240,8 @@ class FunctionCallAgent(ToolBaseAgent):
                 )
                 choice = response.choices[0].message
                 try:
-                    structured_response_content, tc_id = self._valid_structured_response(choice)
+                    structured_response_content, tc_id = self._valid_structured_response(
+                        choice, escalation_level=time+1)
                     is_correct = True
                     break  # 自纠错成功，退出循环
                 except ValueError as e:
