@@ -43,13 +43,14 @@ class FunctionCallAgent(ToolBaseAgent):
         self.hit_valid_pipeline = ValidPipline(
             [
                 FunctionHitValid()
-            ]
+            ], self.logger
         )
         # 结构化输出验证
         self.struct_valid_pipeline = ValidPipline(
             [
                 StructValidHandler()
-            ]
+            ],
+            self.logger
         )
 
     # ────────────────────────────── 抽象方法实现 ──────────────────────────────
@@ -133,37 +134,60 @@ class FunctionCallAgent(ToolBaseAgent):
         analysis_instruction = {
             "role": "system",
             "content": (
-                "## 重要指令\n"
-                "你是一个智能体，当前的任务根据已有信息分析用户问题，请务必遵循以下步骤：\n\n"
-                "- 你**必须且只能**调用 `final_structured_output` 函数进行分析和规划，你规划调用其他函数来解决问题，但是不能直接调用。\n"
-                "在调用该函数时：\n"
-                "- `analysis`: 针对当前问题和已知信息，写出你的 `思考过程` 或者是 `最终的结果`，分析问题是否需要工具。如果不需要工具直接给答案即可\n"
-                "- `need_tool`: 如果可以直接回答设为 false，如果需要调用工具获取信息设为 true\n\n"
-                "其他的functions仅用于工具调用思考规划，你不能直接调用。"
+                "## 严格指令：本次回答你必须先调用`final_structured_output`\n\n"
+                "你的核心任务是根据已有信息分析用户问题。你必须严格遵守以下准则：\n\n"
+                "### 第一原则（不可违反）\n"
+                "- 你**只能**调用 `final_structured_output` 这一个函数，**禁止直接调用其他任何工具函数**。\n"
+                "- 你必须通过 `tool_calls` 机制调用 `final_structured_output`，不要以文本形式直接输出分析内容。\n\n"
+                "### 调用 final_structured_output 时的参数填写规则\n\n"
+                "1. **`analysis`**（字符串，必填）\n"
+                "   - 写出你的思考过程或最终答案。\n"
+                "   - 如果 `need_tool` 为 false：这里应包含对用户问题的完整最终回答。\n"
+                "   - 如果 `need_tool` 为 true：这里应分析需要什么信息、打算调用哪个工具来获取。\n\n"
+                "2. **`need_tool`**（布尔值，必填）\n"
+                "   - `false`：当前信息足够直接回答用户问题。\n"
+                "   - `true`：需要调用工具获取额外信息才能回答。\n\n"
+                "### 行为约束\n"
+                "- 不要跳过 `final_structured_output` 直接输出文本。\n"
+                "- 不要直接调用其他工具函数（如 search、calculate 等）——你只需要在 `analysis` 中说明打算用什么工具即可。\n"
+                "- 即使你能直接回答某些问题，也**必须**通过 `final_structured_output` 输出。\n\n"
+                "### 正确示例\n"
+                "用户问：\"今天北京天气怎么样？\"\n"
+                "→ 调用 final_structured_output { analysis: \"需要查询北京今天的天气信息，用户没有提供具体数据，我需要调用天气查询工具来获取。\", need_tool: true }\n\n"
+                "用户问：\"2+3=?\"\n"
+                "→ 调用 final_structured_output { analysis: \"2+3=5，这个问题不需要调用工具，我可以直接回答。\", need_tool: false }"
             )
         }
         return [analysis_instruction] + list(messages)
 
-    def _valid_structured_response(self, choice: ChatCompletionMessage):
+    def _valid_structured_response(self, choice: ChatCompletionMessage) -> Tuple[str, Optional[str]]:
+        """
+        验证并提取结构化输出函数的调用内容。
+        :return: (structured_response_content, tc_id)
+                 tc_id 为结构化输出函数的 tool_call_id，存在时必不为 None。
+        """
         # 验证是否命中结构化输出函数
         self.hit_valid_pipeline.validate(choice, function_name=self._structured_output_fn)
         # 验证是否符合结构化输出函数的参数
         structured_tc: ChatCompletionMessageFunctionToolCall = next(
             tool for tool in choice.tool_calls if tool.function.name == self._structured_output_fn)
         structured_response_content: str = structured_tc.function.arguments  # json{}
-        self.struct_valid_pipeline.validate(choice, json_content=structured_response_content, function_name=self._structured_output_fn)
-        return structured_response_content
+        tc_id: str = structured_tc.id
+        self.struct_valid_pipeline.validate(choice, json_content=structured_response_content,
+                                            function_name=self._structured_output_fn)
+        return structured_response_content, tc_id
 
     def _do_structured_analysis(
             self,
             messages: List[Dict[str, Any]],
             temperature: float,
             force_tool_choice: bool = True,
-    ) -> Tuple[str, bool]:
+    ) -> Tuple[str, bool, Optional[str]]:
         """
         Step 1: 让 LLM 输出结构化分析，同时能看到所有工具。
         :param force_tool_choice: 是否强制指定 tool_choice 为 final_structured_output。
-        :return: (analysis, need_tool)
+        :return: (analysis, need_tool, tc_id)
+                 tc_id 为 final_structured_output 的 tool_call_id；若模型未调用函数而是默认输出则返回 None。
         """
         self.logger.debug(f"[{self.name}] Step 1: 结构化分析...")
 
@@ -178,7 +202,7 @@ class FunctionCallAgent(ToolBaseAgent):
             tool_choice = {"type": "function", "function": {"name": self._structured_output_fn}}
         else:
             tool_choice = "auto"
-        
+
         enable_thinking_mode = "disabled" if force_tool_choice else "enabled"
 
         response: ChatCompletion = self.llm.think_origin(
@@ -192,8 +216,9 @@ class FunctionCallAgent(ToolBaseAgent):
         choice = response.choices[0].message
         # 三层验证，保证LLM输出稳定的结构化文本
         structured_response_content = ""
+        tc_id: Optional[str] = None
         try:
-            structured_response_content = self._valid_structured_response(choice)
+            structured_response_content, tc_id = self._valid_structured_response(choice)
         except ValueError as e:
             # 让llm重新调用，自纠错
             is_correct = False
@@ -203,7 +228,8 @@ class FunctionCallAgent(ToolBaseAgent):
             prepared_messages.append(rollback_msg)
             # 进行自纠错
             for time in range(self._structured_rollback_times):
-                self.logger.warning(f"[{self.name}] 自纠错第 {time+1} 次，最大尝试次数为 {self._structured_rollback_times}")
+                self.logger.warning(
+                    f"[{self.name}] 自纠错第 {time + 1} 次，最大尝试次数为 {self._structured_rollback_times}")
                 response: ChatCompletion = self.llm.think_origin(
                     prepared_messages,
                     tools=all_tools,
@@ -213,11 +239,11 @@ class FunctionCallAgent(ToolBaseAgent):
                 )
                 choice = response.choices[0].message
                 try:
-                    structured_response_content = self._valid_structured_response(choice)
+                    structured_response_content, tc_id = self._valid_structured_response(choice)
                     is_correct = True
                     break  # 自纠错成功，退出循环
                 except ValueError as e:
-                    self.logger.warning(f"[{self.name}] 自纠错第 {time+1} 次失败，错误原因：{str(e)}")
+                    self.logger.warning(f"[{self.name}] 自纠错第 {time + 1} 次失败，错误原因：{str(e)}")
                     # 替换上一条纠错消息（而非追加），防止上下文被重复的失败信息撑大
                     prepared_messages[correction_idx] = {"role": "system", "content": str(e)}
             # 自纠错失败
@@ -227,10 +253,11 @@ class FunctionCallAgent(ToolBaseAgent):
                     "analysis": "正在思考中....",
                     "need_tool": True
                 })
+                # tc_id 保持 None
         # 解析结构化文本
         parsed = self._parse_function_call_arguments(structured_response_content)
         analysis, need_tool = parsed["analysis"], parsed["need_tool"]
-        return analysis, need_tool
+        return analysis, need_tool, tc_id
 
     def _execute_tool_calls(
             self,
@@ -246,12 +273,14 @@ class FunctionCallAgent(ToolBaseAgent):
         """
         self.logger.debug(f"[{self.name}] Step 2a: 执行工具调用...")
         tool_schemas = self._build_tool_schemas()
-        # 发起新的 LLM 调用
+        # 发起新的 LLM 调用（与 Step 1 保持一致，关闭思考模式，防止 DeepSeek 等模型
+        # 因 reasoning_content 缺失而报 400 错误）
         response: ChatCompletion = self.llm.think_origin(
             messages,
             tools=tool_schemas,
             tool_choice=tool_choice,
             temperature=temperature,
+            extra_body={"thinking": {"type": "disabled"}},
         )
         choice = response.choices[0].message
         if not choice.tool_calls:
@@ -342,20 +371,24 @@ class FunctionCallAgent(ToolBaseAgent):
 
         # ── Step 1: 结构化分析（need_thought=True 时执行）────────────────
         if need_thought:
-            analysis, need_tool = self._do_structured_analysis(
+            analysis, need_tool, _tc_id = self._do_structured_analysis(
                 messages, temperature, force_tool_choice
             )
             self.logger.debug(f"[{self.name}] 分析结果: need_tool={need_tool}")
             # 如果没有工具调用，则说明不需要继续调用工具，可以直接回答问题，说明当前执行连结束，返回SUCCESS
             thought_msg = Message(content=analysis, role="assistant")
             current_messages.append(thought_msg.to_openai_dict())
+            structured_tc_state: ToolCallState = ToolCallState(_tc_id, self._structured_output_fn, {
+                "analysis": analysis,
+                "need_tool": need_tool
+            }, result=analysis)
             if not need_tool:
                 self.logger.debug(f"[{self.name}] 无需工具调用，直接返回结果")
-                yield BaseState(StateCode.Finish, analysis)
+                yield BaseState(StateCode.Finish, structured_tc_state)
                 return
             else:
                 self.logger.debug(f"[{self.name}] 需要工具调用，进入工具调用流程")
-                yield BaseState(StateCode.THOUGHT, analysis)
+                yield BaseState(StateCode.THOUGHT, structured_tc_state)
         # ── Step 2: 工具执行流程 ────────────────────────────────────────────
         tool_states = self._execute_tool_calls(
             current_messages, tool_choice, temperature

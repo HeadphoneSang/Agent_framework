@@ -47,6 +47,28 @@ class ReactTCAgent(FunctionCallAgent):
         ]
         return messages
 
+    @staticmethod
+    def _extract_from_structured_fn(state: ToolCallState):
+        analysis = state.tool_params['analysis']
+        need_tool = state.tool_params['need_tool']
+        return analysis, need_tool, state.tool_call_id
+
+    def _record_structured_output(self, tc_state: ToolCallState, session_memories: list) -> Message:
+        """记录结构化输出到短期记忆，返回 AI 消息"""
+        analysis, _, tc_id = self._extract_from_structured_fn(tc_state)
+        if tc_id:  # 将tc的请求也加到消息列表，保证过程完整性，防止模型出现幻觉
+            tool_call_msg = ToolCallState.build_assistant_tool_call_message([tc_state])
+            session_memories.append(tool_call_msg)
+        # 返回AI的思考过程
+        ai_msg = Message(role="assistant", content=analysis)
+        analysis_msg_dict = ai_msg.to_openai_dict()
+        if tc_id:  # 将tc的执行结果也加进去
+            analysis_msg_dict['tool_call_id'] = tc_id
+            analysis_msg_dict['name'] = tc_state.tool_name
+            analysis_msg_dict['role'] = 'tool'
+        session_memories.append(analysis_msg_dict)
+        return ai_msg
+
     def stream(self, input_params: Dict[str, Any], tools_key: str = "tools",
                question_key: str = "question",
                stream: bool = False,
@@ -73,11 +95,9 @@ class ReactTCAgent(FunctionCallAgent):
             messages = self._format_messages(input_params, session_memories)
             for state in self.invoke_with_tools(messages, force_tool_choice=True, **kwargs):
                 if state == StateCode.THOUGHT:
-                    # ai输出的思考过程
-                    content: str = state.payload
-                    ai_response = Message(role="assistant", content=content)
-                    session_memories.append(ai_response.to_openai_dict())
-                    yield ai_response
+                    ai_msg = self._record_structured_output(state.payload, session_memories)
+                    yield ai_msg
+
                 elif state == StateCode.TOOL_CALL:
                     tool_call_states: list[ToolCallState] = state.payload
                     # OpenAI API 要求：tool role 消息前必须有带 tool_calls 的 assistant 消息
@@ -87,11 +107,9 @@ class ReactTCAgent(FunctionCallAgent):
                         session_memories.append(tc_state.to_openai_message())
                         yield Message.from_open_ai(tc_state.to_openai_message())
                 elif state == StateCode.Finish:
-                    # 直接可以回答问题，会话任务执行结束
-                    answer: str = state.payload
-                    session_memories.append(Message(role="assistant", content=answer).to_openai_dict())
-                    yield Message(role="assistant", content=answer)
-                    break  # 跳出内层 for
+                    ai_msg = self._record_structured_output(state.payload, session_memories)
+                    yield ai_msg
+                    break
             else:
                 # 内层循环正常结束（未收到 Finish），继续下一轮 epoch
                 continue
