@@ -13,6 +13,13 @@ class Message(BaseModel):
     timestamp: datetime = None
     metadata: Optional[Dict[str, Any]] = None
 
+    @classmethod
+    def from_open_ai(cls, open_ai_message: dict):
+        content = open_ai_message.get("content", "")
+        role = open_ai_message.get("role", "")
+        return cls(content=content, role=role)
+
+
     def __init__(self, content: str, role: MessageRole, **kwargs):
         super().__init__(
             content=content,

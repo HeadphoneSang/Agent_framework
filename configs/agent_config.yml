@@ -1,4 +1,5 @@
 max_history_length: 100
 max_epoch: 5
+max_tokens: 4096
 max_reflection_epoch: 1
 temperature: 0.7

@@ -11,7 +11,14 @@ class SearchTool(Tool):
     """时间工具"""
 
     def get_params(self) -> List[ToolParameter]:
-        pass
+        return [
+            ToolParameter(
+                name="query",
+                description="搜索内容",
+                required=True,
+                type="string"
+            )
+        ]
 
     def __init__(self):
         super().__init__(name="search",

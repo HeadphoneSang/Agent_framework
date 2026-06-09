@@ -18,7 +18,7 @@ def _extract_pure_content(message: Message):
     return match.group(2).strip() if match else message.content
 
 
-class ReflectAgent(ToolBaseAgent,BaseMemoryAgent):
+class ReflectAgent(ToolBaseAgent, BaseMemoryAgent):
 
     def _init_memory(self, config: Dict[str, Any]) -> BaseMemory:
         return RedisMemory(config)
@@ -114,59 +114,3 @@ class ReflectAgent(ToolBaseAgent,BaseMemoryAgent):
         self.logger.debug(f"Reflection Agent-{self.name} 超出最大轮数，返回最终结果...")
         final_answer = _extract_pure_content(Message(content=session_memories[-1]['content'], role="assistant"))
         yield Message(content=final_answer, role="assistant")
-
-    def run(self, input_msg: Message, stream: bool = False, **kwargs) -> Message:
-        """
-        运行智能体
-        """
-        # 将用户的提问首先加入到消息记录
-        self.main_agent.add_history(input_msg)
-        self.logger.info(f"Reflection Agent-{self.name}开始处理任务： {input_msg.content}")
-        # 获得LLM的初次回答
-        main_agent_result: Message = self.main_agent.run(input_msg, stream, **kwargs)
-        main_agent_result.content = f"[初步回答内容]: {main_agent_result.content}"
-        # 将LLM的初次回答加入到反思专家的历史记录
-        self.reflection_agent.add_history(main_agent_result)
-        # 将LLM的初次回答加入到完善专家的历史记录
-        self.refine_agent.add_history(main_agent_result)
-        for epoch in range(self.max_reflection_epoch):
-            self.logger.debug(f"Reflection Agent-{self.name} epoch: {epoch}")
-            # 获得修改意见
-            self.logger.debug(f"Reflection Agent-{self.name} 审阅专家审阅中...")
-            reflection_result: Message = self.reflection_agent.run(input_msg, stream, **kwargs)
-            if reflection_result.content.strip() == "无":
-                # 返回纯净的智能体回答
-                final_answer = _extract_pure_content(self.main_agent.history[-1])
-                self.history.append(Message(content=final_answer, role="assistant"))
-                return self.history[-1]
-            # 格式化修改意见
-            self.logger.debug(f"Reflection Agent-{self.name} 审阅意见: {reflection_result.content}")
-            self.logger.debug(f"Reflection Agent-{self.name} 修正专家修正中...")
-            reflection_result.content = f"[专家给出的修改意见]: {reflection_result.content}"
-            # 添加历史记录
-            self.refine_agent.add_history(reflection_result)
-            # 修改专家给出修改结果
-            refine_result: Message = self.refine_agent.run(input_msg, stream, **kwargs)
-            refine_result.content = f"[完善后的内容]: {refine_result.content}"
-            self.main_agent.add_history(refine_result)
-            self.reflection_agent.add_history(refine_result)
-            self.logger.debug(f"Refine Agent-{self.name} 修正结果: {refine_result.content}")
-        self.logger.debug(f"Reflection Agent-{self.name} 超出最大轮数，返回最终结果...")
-        final_answer = _extract_pure_content(self.main_agent.history[-1])
-        self.history.append(Message(content=final_answer, role="assistant"))
-        return self.history[-1]
-
-    def clear_history(self):
-        """
-        清空历史
-        """
-        self.main_agent.clear_history()
-        self.reflection_agent.clear_history()
-        self.refine_agent.clear_history()
-        self.history.clear()
-
-    def add_history(self, message: Message):
-        self.history.append(message)
-        self.main_agent.add_history(message)
-        self.reflection_agent.add_history(message)
-        self.refine_agent.add_history(message)

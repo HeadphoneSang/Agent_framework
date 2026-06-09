@@ -56,7 +56,11 @@ class Tool(ABC):
             # 如果参数必备，添加到required
             if param.required:
                 required.append(param.name)
-        return {
+        # properties["thought"] = {
+        #     "type": "string",
+        #     "description": "在调用此工具前，请先用中文详细描述你为什么要使用它，你的思路。"
+        # }
+        pre_result = {
             "type": "function",
             "function": {
                 "name": self.name,
@@ -68,3 +72,4 @@ class Tool(ABC):
                 }
             }
         }
+        return pre_result

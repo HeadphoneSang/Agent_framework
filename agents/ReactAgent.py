@@ -4,6 +4,8 @@ from typing import Optional, List, Dict, Any, Iterator
 from agents.base.ToolBaseAgent import ToolBaseAgent, SafeDict
 from config import BaseConfig, AgentConfig
 from internals import HelloAgentsLLM, Message
+from internals.entities import BaseState
+from internals.entities.BaseState import StateCode
 from internals.tool import ToolRegistry, Tool
 from logger.loggerUtil import get_logger
 from utils.fileUtils import load_file_content, get_abs_path
@@ -87,14 +89,14 @@ class ReactAgent(ToolBaseAgent):
                     session_memories.append(thought_msg.to_openai_dict())
                     yield thought_msg
                 # 解析action
-                action_state: Dict[str, Any] = self._parse_action_part(action_part)
+                action_state: BaseState = self._parse_action_part(action_part)
                 # LLM没有调用工具，直接返回智能体的最终结果
-                if action_state['status'] == 'Finish':
-                    session_memories.append(action_state["payload"].to_openai_dict())
-                    yield action_state['payload']
+                if action_state == StateCode.Finish:
+                    session_memories.append(action_state.payload.to_openai_dict())
+                    yield action_state.payload
                     return
                 # 执行所有的工具调用, 并将执行结果加入会话记录，同时返回调用结果
-                tool_call_list = action_state['payload']
+                tool_call_list = action_state.payload
                 tools_results = self._execute_tool_calls(tool_call_list)
                 yield tools_results
                 session_memories.append(tools_results.to_openai_dict())
@@ -120,76 +122,7 @@ class ReactAgent(ToolBaseAgent):
         session_memories.append(Message(role="assistant", content=response_content).to_openai_dict())
         yield Message(content=response_content, role="assistant")
 
-    def run(self, input_msg: Message, stream: bool = False, **kwargs) -> Message:
-        """
-        运行智能体
-        """
-        self.logger.info(f"{self.name} 正在处理: {input_msg.content}")
-        prompt_template = self.system_prompt
-        tools_descriptions = self.tool_registry.get_all_tools_descriptions()
-        # 初始化当前会话的短期记忆列表
-        short_term_memory: List[str] = [str(message) for message in
-                                        self.history[-(self.max_history_len - self.max_epoch):]]
-        # 开始执行React循环
-        for epoch in range(self.max_epoch):
-            self.logger.debug(f"{self.name} epoch: {epoch}")
-            history_prompt = "\n- ".join(short_term_memory)
-            prompt = prompt_template.format(history=history_prompt, question=input_msg.content,
-                                            tools=tools_descriptions)
-            messages = [{
-                "role": "user",
-                "content": prompt,
-            }]
-            response_content = self.llm.think(messages, **kwargs, stream=stream)
-            # 解析LLM返回的格式化语句
-            try:
-                parts = self._b_split(response_content)
-                thought_part = parts[0]
-                action_part = parts[1]
-                thought_content = thought_part.split("Thought:")[1].strip()
-                # 将模型执行的思路加入到短期记忆记录里面
-                if thought_content != "":
-                    short_term_memory.append(str(Message(content=thought_content, role="assistant")))
-                # 解析action
-                action_state: Dict[str, Any] = self._parse_action_part(action_part)
-                if action_state['status'] == 'Finish':
-                    self.add_history(action_state['payload'])
-                    return self.history[-1]
-                # 执行所有的工具调用, 并将执行结果加入会话记录，同时返回调用结果
-                tool_call_list = action_state['payload']
-                tool_call_results = []
-                for tool_call in tool_call_list:
-                    tool_result = self.tool_registry.execute_tool(tool_call)
-                    tool_call_results.append(f"- 工具: {tool_call.get('tool_name')} 的执行结果为: {tool_result}")
-                # 将所有的工具调用的结果加入到短期记忆记录里面
-                short_term_memory.append(str(Message(content="\n".join(tool_call_results), role="tool")))
-                # self.add_history(Message(content="\n".join(tool_call_results), role="tool"))
-                self.logger.debug(f"{self.name} 工具调用结果: {short_term_memory[-1]}")
-            except Exception as e:
-                self.logger.error(f"{self.name} 运行错误: {e}")
-                # 将格式解析错误的信息加入到短期记忆，让LLM知道错误，并重新执行
-                short_term_memory.append(
-                    str(Message(content=f"{response_content} **！！回答格式错误！！**，__请严格检查回答要求，并重新回复。__",
-                                role="tool")))
-        # 如果超过最大轮数，则返回最终结果
-        current_history: List[str] = [str(message) for message in self.history[-self.max_history_len:]]
-        history_prompt = "\n- ".join(current_history)
-        messages = [
-            {
-                "role": "user",
-                "content": history_prompt
-            },
-            {
-                "role": "user",
-                "content": f"你已经超出了最大的回答次数。请结合上文的历史信息，针对用户的原始问题: {input_msg.content}\n直接给出总结性的回答文本，结束这次对话"
-            }
-        ]
-        self.logger.warning(f"{self.name} 运行超过最大轮数，返回最终结果...")
-        response_content = self.llm.think(messages, **kwargs, stream=stream)
-        self.add_history(Message(content=response_content, role="assistant"))
-        return self.history[-1]
-
-    def _parse_action_part(self, action_part_content: str) -> Dict[str, Any]:
+    def _parse_action_part(self, action_part_content: str) -> BaseState:
         """
         解析action为执行工具的列表，每个项目表示一个工具调用。包含一个tool_name:str和一个params:str
         例子: Action: some action \n Action: some action
@@ -208,18 +141,13 @@ class ReactAgent(ToolBaseAgent):
             if action_content.startswith("Finish"):
                 finish_match = re.search(r'Finish\[(.*)\]', action_content, re.DOTALL)
                 finish_answer = finish_match.group(1).strip()
-                return {
-                    "status": "Finish",
-                    "payload": Message(content=finish_answer, role="assistant")
-                }
+                return BaseState(StateCode.Finish,Message(content=finish_answer, role="assistant"))
             else:
                 # tool_name[args]
                 try:
                     tool_match = re.search(r'(\w+)\[(.*?)\]', action_content)
                     if tool_match is None:
                         self.logger.error(f"{self.name} 解析Action字段错误: {action_content}")
-                        self.add_history(
-                            Message(content=f"{action_content} 错误，请检查工具调用格式，并重新回复 。", role="tool"))
                         raise Exception(f"Action字段解析错误: {action_content}")
                     tool_name = tool_match.group(1)
                     tool_args_content = tool_match.group(2)
@@ -230,13 +158,8 @@ class ReactAgent(ToolBaseAgent):
                     })
                 except Exception as e:
                     self.logger.error(f"{self.name} 解析Action字段错误: {action_content}")
-                    self.add_history(
-                        Message(content=f"{action_content} 错误，请检查工具调用格式，并重新回复 。", role="tool"))
                     raise e
-        return {
-            "status": "tool_calls",
-            "payload": tool_call_list
-        }
+        return BaseState(StateCode.TOOL_CALL, tool_call_list)
 
     def _b_split(self, response_content) -> tuple[str, str]:
         """

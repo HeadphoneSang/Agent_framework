@@ -26,6 +26,12 @@ class ToolRegistry:
         del self._tools[tool.name]
         self.logger.debug(f"工具 {tool.name} 注销成功")
 
+    def get_tools_schema(self):
+        tools_schema: list[dict[str, Any]] = []
+        for tool in self._tools.values():
+            tools_schema.append(tool.to_openai_schema())
+        return tools_schema
+
     def register_function(self, name: str, description: str, func: Callable[[str], str]):
         """注册函数"""
         if name in self._functions:
@@ -64,7 +70,7 @@ class ToolRegistry:
             return self._functions[tool_name]['func'](**tool_call['tool_params'])
         else:
             self.logger.warning(f"工具 {tool_name} 没有注册!")
-            return f"工具 {tool_name} 没有注册!"
+            raise ValueError(f"工具 {tool_name} 没有注册!")
 
     def get_tool_by_name(self, tool_name: str) -> Tool:
         """
