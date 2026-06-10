@@ -34,6 +34,7 @@ class MyLLM(HelloAgentsLLM):
                 model0 = provider_infos.get(provider).get("model_name")
                 base_url0 = provider_infos.get(provider).get("base_url")
                 self.logger.info(f"自动使用供应商: {provider}")
+                self.provider = provider
                 self.logger.info(f"自动匹配使用模型: {model0}")
             else:
                 model0 = self.config.get("provider_list").get(provider).get("model_name")

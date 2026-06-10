@@ -2,6 +2,9 @@ import json
 import os
 import re
 from typing import Optional, List, Dict, Any, Iterator
+
+from openai.types.chat import ChatCompletionMessage
+
 from agents.base.ToolBaseAgent import ToolBaseAgent, SafeDict
 from agents.base.FunctionCallAgent import FunctionCallAgent
 from config import BaseConfig, AgentConfig
@@ -28,7 +31,8 @@ class ReactTCAgent(FunctionCallAgent):
     ):
         super().__init__(name, llm, system_prompt, config, tool_registry)
         if self.system_prompt is None or self.system_prompt == "":
-            self.system_prompt = load_file_content(get_abs_path(os.path.join('agents', 'prompts', 'react_tc_prompt.md')))
+            self.system_prompt = load_file_content(
+                get_abs_path(os.path.join('agents', 'prompts', 'react_tc_prompt.md')))
         self.max_epoch = config.get("max_epoch", 5)
         self.logger = get_logger(self.name)
         self.max_history_len = config.get("max_history_length", 50)
@@ -56,17 +60,22 @@ class ReactTCAgent(FunctionCallAgent):
     def _record_structured_output(self, tc_state: ToolCallState, session_memories: list) -> Message:
         """记录结构化输出到短期记忆，返回 AI 消息"""
         analysis, _, tc_id = self._extract_from_structured_fn(tc_state)
-        if tc_id:  # 将tc的请求也加到消息列表，保证过程完整性，防止模型出现幻觉
-            tool_call_msg = ToolCallState.build_assistant_tool_call_message([tc_state])
-            session_memories.append(tool_call_msg)
+        if tc_state.payload and isinstance(tc_state.payload, ChatCompletionMessage):
+            # 将原始的LLM返回的消息追加到历史记录，提高缓存命中率
+            session_memories.append(tc_state.payload)
+        if not tc_state.payload:
+            session_memories.append(tc_state.to_openai_message())
+        # if tc_id:  # 将tc的请求也加到消息列表，保证过程完整性，防止模型出现幻觉
+        #     tool_call_msg = ToolCallState.build_assistant_tool_call_message([tc_state])
+        #     session_memories.append(tool_call_msg)
         # 返回AI的思考过程
         ai_msg = Message(role="assistant", content=analysis)
         analysis_msg_dict = ai_msg.to_openai_dict()
-        if tc_id:  # 将tc的执行结果也加进去
+        if tc_id:  # 将tc的执行结果也加进去, 思考模式没有id，所以这里不执行
             analysis_msg_dict['tool_call_id'] = tc_id
             analysis_msg_dict['name'] = tc_state.tool_name
             analysis_msg_dict['role'] = 'tool'
-        session_memories.append(analysis_msg_dict)
+            session_memories.append(analysis_msg_dict)
         return ai_msg
 
     def stream(self, input_params: Dict[str, Any], tools_key: str = "tools",
@@ -97,12 +106,12 @@ class ReactTCAgent(FunctionCallAgent):
                 if state == StateCode.THOUGHT:
                     ai_msg = self._record_structured_output(state.payload, session_memories)
                     yield ai_msg
-
                 elif state == StateCode.TOOL_CALL:
                     tool_call_states: list[ToolCallState] = state.payload
-                    # OpenAI API 要求：tool role 消息前必须有带 tool_calls 的 assistant 消息
-                    tool_call_msg = ToolCallState.build_assistant_tool_call_message(tool_call_states)
-                    session_memories.append(tool_call_msg)
+                    # OpenAI API 要求：tool role 消息前必须有带 tool_calls 的 assistant 消息'
+                    if not self.supports_thinking:
+                        tool_call_msg = ToolCallState.build_assistant_tool_call_message(tool_call_states)
+                        session_memories.append(tool_call_msg)
                     for tc_state in tool_call_states:
                         session_memories.append(tc_state.to_openai_message())
                         yield Message.from_open_ai(tc_state.to_openai_message())
@@ -116,6 +125,10 @@ class ReactTCAgent(FunctionCallAgent):
             # 内层循环被 break（收到 Finish），结束整个 ReAct 循环
             break
         # 所有 epoch 用完仍未收到 Finish，做一次兜底总结
+        if isinstance(session_memories[-1],ChatCompletionMessage) and (getattr(session_memories[-1], 'content') and getattr(session_memories[-1], 'reasoning_content')):
+            yield Message(content=getattr(session_memories[-1], 'content'), role="assistant")
+            print(1)
+            return
         messages = [
             *self._format_messages(input_params, session_memories),
             {
@@ -126,4 +139,3 @@ class ReactTCAgent(FunctionCallAgent):
         response_content = self.llm.think(messages, **kwargs, stream=stream)
         session_memories.append(Message(role="assistant", content=response_content).to_openai_dict())
         yield Message(content=response_content, role="assistant")
-            

@@ -20,7 +20,8 @@ class ToolCallState(BaseState):
         tool_call_id: str,
         tool_name: str,
         tool_params: Dict[str, Any],
-        result: Any = None
+        result: Any = None,
+        payload: Any = None,
     ):
         """
         初始化工具调用状态
@@ -31,7 +32,7 @@ class ToolCallState(BaseState):
             tool_params: 工具调用参数
             result: 工具执行结果（默认为 None，执行后填充）
         """
-        super().__init__(StateCode.TOOL_CALL, None)
+        super().__init__(StateCode.TOOL_CALL, payload)
         self.tool_call_id = tool_call_id
         self.tool_name = tool_name
         self.tool_params = tool_params
