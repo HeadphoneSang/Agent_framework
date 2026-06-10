@@ -1,2 +1,2 @@
-deepseek:deepseek-v4-flash: true
+deepseek:deepseek-v4-flash: false
 qwen:qwen3.7-plus: true

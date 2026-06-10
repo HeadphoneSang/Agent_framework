@@ -17,7 +17,7 @@ def init_memory(config: Dict[str, Any]) -> BaseMemory:
     return LocalFileMemory(config)
 
 
-llm = MyLLM(provider='qwen', print_content=True)
+llm = MyLLM(provider='deepseek', print_content=True)
 
 tool_register = ToolRegistry()
 

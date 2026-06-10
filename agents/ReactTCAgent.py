@@ -127,7 +127,6 @@ class ReactTCAgent(FunctionCallAgent):
         # 所有 epoch 用完仍未收到 Finish，做一次兜底总结
         if isinstance(session_memories[-1],ChatCompletionMessage) and (getattr(session_memories[-1], 'content') and getattr(session_memories[-1], 'reasoning_content')):
             yield Message(content=getattr(session_memories[-1], 'content'), role="assistant")
-            print(1)
             return
         messages = [
             *self._format_messages(input_params, session_memories),

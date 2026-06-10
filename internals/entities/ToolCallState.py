@@ -103,11 +103,15 @@ class ToolCallState(BaseState):
         Returns:
             OpenAI 格式的 tool 执行结果的消息字典
         """
-        return {
+        ret_dict = {
             "role": "tool",
-            "tool_call_id": self.tool_call_id,
             "content": str(self.result) if self.result is not None else ""
         }
+        if self.tool_call_id:
+            ret_dict["tool_call_id"] = self.tool_call_id
+        else:
+            ret_dict["role"] = 'assistant'
+        return ret_dict
 
     def __str__(self) -> str:
         """
